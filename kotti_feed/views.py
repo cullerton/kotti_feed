@@ -23,9 +23,37 @@ def result_items(context, request):
                 request.resource_path(item).startswith(context_path))]
 
 
+def result_items_by_tag(context, request):
+    """only return items that have all the tags in matchdict['tags']"""
+    tags = request.matchdict['tags'].lower().split('/')
+    items = result_items(context, request)
+    items_by_tag = []
+    for item in items:
+        missing = False
+        for tag in tags:
+            # do we have a tag (ignore tag == '')
+            # can we find it in item.tags
+            if tag and not tag.lower() in [tag.lower() for tag in item.tags]:
+                missing = True
+                break
+        if not missing: items_by_tag.append(item)
+    return items_by_tag
+
+
 def rss_items(context, request):
     api = TemplateAPI(context, request)
     items = result_items(context, request)
+    return [RSS2.RSSItem(title=item.title,
+                         link=api.url(item),
+                         description=item.description,
+                         guid=RSS2.Guid(api.url(item)),
+                         pubDate=item.modification_date,
+                         ) for item in items]
+
+
+def rss_items_by_tag(context, request):
+    api = TemplateAPI(context, request)
+    items = result_items_by_tag(context, request)
     return [RSS2.RSSItem(title=item.title,
                          link=api.url(item),
                          description=item.description,
@@ -54,6 +82,15 @@ def rss_view(context, request):
                     content_type='application/rss+xml')
 
 
+def rss_view_by_tag(context, request):
+    rss_info = rss_basic_info(context, request)
+    rss_info['items'] = rss_items_by_tag(context, request)
+    rss = RSS2.RSS2(**rss_info)
+
+    return Response(body=rss.to_xml(encoding='utf-8'),
+                    content_type='application/rss+xml')
+
+
 def rss_head_link(context, request):
     rss_info = rss_basic_info(context, request)
     rss_info['rss_link'] = rss_info['link'] + 'rss_view'
@@ -68,6 +105,9 @@ def rss_icon(context, request):
 
 
 def includeme(config):  # pragma: no cover
+    config.add_route('rss_view_by_tag', '/ideas/rss/{tags:.+}')
+    config.add_view(rss_view_by_tag, route_name='rss_view_by_tag')
+
     config.add_view(rss_view, name='rss_view', permission='view')
 
     config.add_view(rss_head_link, name='rss-head-link',
